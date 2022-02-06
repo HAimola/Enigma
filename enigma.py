@@ -75,29 +75,20 @@ def check_dict_repeating_values(d: dict, except_msg):
 # Classe que codifica e aceita as configurações do usuário
 class Enigma:
 
-    def __init__(self, input_text: str, rotor_pos: str = "00:00:00", rotor_config: tuple[str, str, str] = None,
+    def __init__(self, input_text: str = "", rotor_pos: str = "00:00:00", rotor_config: tuple[str, str, str] = None,
                  plugboard: tuple or dict = (), reflector_config: str = "B"):
 
         self.txt = input_text.upper()
-        self.rotor_pos = rotor_pos
+        self._rotor_pos = rotor_pos
         self.rotor_config = rotor_config
-        self.plugboard_input = plugboard
+        self._plugboard = plugboard
         self.reflector_option = reflector_config
         self.sanitize_flag = True
 
         self.sanitize_flag = None
-        search = re.findall("\d{1,2}", self.rotor_pos)
-        self.ring1 = int(search[2])
-        self.ring2 = int(search[1])
-        self.ring3 = int(search[0])
-
-        if isinstance(self.plugboard_input, tuple):
-            self.plugboard = {plug[0]: plug[1] for plug in self.plugboard_input if plug[0] != plug[1]}
-        elif isinstance(self.plugboard_input, dict):
-            self.plugboard = self.plugboard_input
-
-        check_dict_repeating_values(self.plugboard, except_msg="Existem valores repetidos no plugboard. Uma "
-                                                                        "letra pode se conectar à apenas uma outra letra!")
+        self.ring1: int = 0
+        self.ring2: int = 0
+        self.ring3: int = 0
 
         self.rotor1 = None
         self.rotor2 = None
@@ -105,7 +96,49 @@ class Enigma:
         self.reflector = None
         self.sanitize_flag = True
 
+    @property
+    def rotor_pos(self):
+        return f"{self.ring3:02d}:{self.ring2:02d}:{self.ring1:02d}"
+
+    @rotor_pos.setter
+    def rotor_pos(self, value):
+        self._rotor_pos = value
+        search = re.findall("\d{1,2}", self._rotor_pos)
+
+        self.ring1 = int(search[2])
+        self.ring2 = int(search[1])
+        self.ring3 = int(search[0])
+
+    @property
+    def plugboard(self):
+        return self._plugboard
+
+    @plugboard.setter
+    def plugboard(self, value):
+
+
+        comp = re.compile("[+_`!@#$%^&*=().,';~/\d-]")
+
+        if isinstance(value, tuple):
+
+            for plug in value:
+                search = re.findall(comp, plug)
+                if search:
+                    raise ValueError(f"String do plugboard {plug} com caractér especial ou números! Use apenas letras.")
+                if len(plug) != 2:
+                    raise ValueError(f"Configuração de plugboard {plug} não tem duas conexões!")
+
+            self._plugboard = {plug[0]: plug[1] for plug in value if plug[0] != plug[1]}
+        elif isinstance(value, dict):
+            self._plugboard = value
+
+        check_dict_repeating_values(self.plugboard, except_msg="Existem valores repetidos no plugboard. Uma "
+                                                               "letra pode se conectar à apenas uma outra letra!")
+
     def __setattr__(self, key, value):
+        if key == "txt":
+            value = value.upper()
+
         super().__setattr__(key, value)
 
         if "sanitize_flag" in self.__dict__:
@@ -114,6 +147,9 @@ class Enigma:
 
     # Função que sanitiza todos os inputs
     def sanitize_inputs(self):
+
+        if not isinstance(self.txt, str):
+            raise ValueError(f"Dados passados - {self.txt} - não são em forma de texto! ")
 
         # A máquina Enigma original só encriptava letras
         # Termina o programa caso tenha algum caractér especial ou número.
@@ -128,7 +164,7 @@ class Enigma:
         # Caso o usuário queira alterar o valor da posição, ele deve fazer no formato correto (Digito:Digito:Digito).
         # Termina o programa se não tiverem 3 grupos de digitos ou se eles não forem digitos
         comp = re.compile("\d{1,2}:\d{1,2}:\d{1,2}")
-        search = re.findall(comp, self.rotor_pos)
+        search = re.findall(comp, self._rotor_pos)
 
         if not search:
             raise ValueError("Posição do Rotor inválida. O padrão desta opção deve ser: Número:Número:Número")
@@ -152,16 +188,6 @@ class Enigma:
         if self.reflector_option not in ("C", "B"):
             raise ValueError("O modelo de refletor não existe. Escolha o refletor B ou C.")
 
-        if isinstance(self.plugboard_input, tuple):
-            comp = re.compile("[+_`!@#$%^&*=().,';~/\d-]")
-            for plug in self.plugboard_input:
-                search = re.findall(comp, plug)
-                if search:
-                    raise ValueError(f"String do plugboard {plug} com caractér especial ou números! Use apenas letras.")
-                if len(plug) != 2:
-                    raise ValueError(f"Configuração de plugboard {plug} não tem duas conexões!")
-
-
     # Essa função enforça os limites dos rotores e implementa um função do design chamada de Turnover
     def increment_higher_ring(self):
         if self.ring1 == 17:
@@ -178,13 +204,11 @@ class Enigma:
             self.ring3 = 0
 
     def instance_in_plugboard(self, input: str):
-        if input in self.plugboard:
-            return self.plugboard[input]
-        elif input in self.plugboard.values():
-            return read_key(self.plugboard, input)
+        if input in self._plugboard:
+            return self._plugboard[input]
+        elif input in self._plugboard.values():
+            return read_key(self._plugboard, input)
         return input
-
-
 
     # Função que de fato encripta - e decripta - o texto de input.
     # Por conta da arquitetura do programa, implementar outras variações dos rotores ou dos refletores é
