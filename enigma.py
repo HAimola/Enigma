@@ -1,18 +1,12 @@
-from hardware_tables import _ROTOR_1, _ROTOR_2, _ROTOR_3, _ROTOR_4, _ROTOR_5, REFLECTOR_B, REFLECTOR_C
+from hardware_tables import ROTOR_1, ROTOR_2, ROTOR_3, ROTOR_4, ROTOR_5, REFLECTOR_B, REFLECTOR_C
 from hardware_tables import _ROT_INTER_IN1, _ROT_INTER_12, _ROT_INTER_23, _ROT_INTER_3R
 
 import re
 
 
 def default_rotors_and_interfaces():
-    global ROTOR_1, ROTOR_2, ROTOR_3, ROTOR_4, ROTOR_5
     global ROT_INTER_IN1, ROT_INTER_12, ROT_INTER_23, ROT_INTER_3R
 
-    ROTOR_1 = _ROTOR_1.copy()
-    ROTOR_2 = _ROTOR_2.copy()
-    ROTOR_3 = _ROTOR_3.copy()
-    ROTOR_4 = _ROTOR_4.copy()
-    ROTOR_5 = _ROTOR_5.copy()
     ROT_INTER_IN1 = _ROT_INTER_IN1.copy()
     ROT_INTER_12 = _ROT_INTER_12.copy()
     ROT_INTER_23 = _ROT_INTER_23.copy()
@@ -56,6 +50,7 @@ def shift_keys_right(d: dict, offset: int):
     list_d = list_d[-offset:] + list_d[:-offset]
     return {list_d[shift_index]: value for shift_index, value in enumerate(d.values())}
 
+
 # Função que lê a chave de um dicionário ao receber o valor
 # Importante para inverter o caminho dos rotores quando eles passam pelo refletor
 def read_key(d: dict, val, key=True):
@@ -71,16 +66,22 @@ def read_key(d: dict, val, key=True):
     return None
 
 
-# Classe que codifica e aceita as configuracoes do usuario
+def check_dict_repeating_values(d: dict, except_msg):
+    for key in d:
+        if key in d.values():
+            raise ValueError(except_msg)
+
+
+# Classe que codifica e aceita as configurações do usuário
 class Enigma:
 
     def __init__(self, input_text: str, rotor_pos: str = "00:00:00", rotor_config: tuple[str, str, str] = None,
-                 plug_board_config: tuple = (), reflector_config: str = "B"):
+                 plugboard: tuple or dict = (), reflector_config: str = "B"):
 
         self.txt = input_text.upper()
         self.rotor_pos = rotor_pos
         self.rotor_config = rotor_config
-        self.plug_board_config = plug_board_config
+        self.plugboard_input = plugboard
         self.reflector_option = reflector_config
         self.sanitize_flag = True
 
@@ -89,6 +90,14 @@ class Enigma:
         self.ring1 = int(search[2])
         self.ring2 = int(search[1])
         self.ring3 = int(search[0])
+
+        if isinstance(self.plugboard_input, tuple):
+            self.plugboard = {plug[0]: plug[1] for plug in self.plugboard_input if plug[0] != plug[1]}
+        elif isinstance(self.plugboard_input, dict):
+            self.plugboard = self.plugboard_input
+
+        check_dict_repeating_values(self.plugboard, except_msg="Existem valores repetidos no plugboard. Uma "
+                                                                        "letra pode se conectar à apenas uma outra letra!")
 
         self.rotor1 = None
         self.rotor2 = None
@@ -116,7 +125,7 @@ class Enigma:
 
         # O formato da posição do Rotor é bem específico:
         # Exitem 3 rotores ativos e eles têm posições de 0 à 25
-        # Caso o usuário queira alterar o valor da posição, ele deve fazer no formato corret (Digito:Digito:Digito).
+        # Caso o usuário queira alterar o valor da posição, ele deve fazer no formato correto (Digito:Digito:Digito).
         # Termina o programa se não tiverem 3 grupos de digitos ou se eles não forem digitos
         comp = re.compile("\d{1,2}:\d{1,2}:\d{1,2}")
         search = re.findall(comp, self.rotor_pos)
@@ -129,7 +138,6 @@ class Enigma:
                 raise ValueError("Configurações de rotor insuficientes. São necessários pelo menos 3 rotores.")
 
             for i in self.rotor_config:
-
                 try:
                     val = int(i)
                 except ValueError:
@@ -140,13 +148,21 @@ class Enigma:
         else:
             self.rotor_config = ("1", "2", "3")
 
-
         # Só existem 2 modelos convencionais de refletor: B e C (existem as variações Dünn, mas eu não implementei)
         if self.reflector_option not in ("C", "B"):
             raise ValueError("O modelo de refletor não existe. Escolha o refletor B ou C.")
 
+        if isinstance(self.plugboard_input, tuple):
+            comp = re.compile("[+_`!@#$%^&*=().,';~/\d-]")
+            for plug in self.plugboard_input:
+                search = re.findall(comp, plug)
+                if search:
+                    raise ValueError(f"String do plugboard {plug} com caractér especial ou números! Use apenas letras.")
+                if len(plug) != 2:
+                    raise ValueError(f"Configuração de plugboard {plug} não tem duas conexões!")
 
-    # Essa função enforça os limites dos rotores e implementa um função do design chamado de Turnover
+
+    # Essa função enforça os limites dos rotores e implementa um função do design chamada de Turnover
     def increment_higher_ring(self):
         if self.ring1 == 17:
             self.ring2 += 1
@@ -161,10 +177,19 @@ class Enigma:
         if self.ring3 >= 26:
             self.ring3 = 0
 
+    def instance_in_plugboard(self, input: str):
+        if input in self.plugboard:
+            return self.plugboard[input]
+        elif input in self.plugboard.values():
+            return read_key(self.plugboard, input)
+        return input
+
+
+
     # Função que de fato encripta - e decripta - o texto de input.
     # Por conta da arquitetura do programa, implementar outras variações dos rotores ou dos refletores é
     # bem simples e pode ser feito só colocando as variáveis no script "hardware_tables.py"
-    def encrypt(self):
+    def encrypt(self) -> str:
         global ROT_INTER_IN1, ROT_INTER_12, ROT_INTER_23, ROT_INTER_3R
         default_rotors_and_interfaces()
         tmp = ""
@@ -187,13 +212,15 @@ class Enigma:
                 result += letter
                 continue
 
+            letter = self.instance_in_plugboard(letter)
+
             self.ring1 += 1
             self.increment_higher_ring()
 
-            # Uma explicação breve da arquitetura e dá máquina:
+            # Uma explicação breve da arquitetura e da máquina:
             # - Existem 2 tipos de dicionários no programa, ambos no script hardware_tables.py, os dicionários
             #   de cifragem  (que têm os nomes de ROTOR_1 à ROTOR_5) e os dicionários de interface
-            #  (ROTOR_INTER_IN1, ROTOR_INTER12, ...)
+            #  (ROTOR_INTER_IN1, ROTOR_INTER_12, ...)
             #
             # - Os dicionários de cifragem são as tabelas que de fato fazem a encriptagem.  No programa, eles mostram
             #  a equivalência entre uma e letra e sua versão cifrada. Por exemplo, se o usuário apertar a letra A no
@@ -250,5 +277,9 @@ class Enigma:
             tmp = read_key(self.rotor1, tmp)
             tmp = read_key(ROT_INTER_IN1, tmp)
 
+            tmp = self.instance_in_plugboard(tmp)
+
             result += tmp
             default_rotors_and_interfaces()
+
+        return result

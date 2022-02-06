@@ -22,8 +22,9 @@ def print_ui_header():
 
 def main():
     print_ui_header()
-    a = Enigma("", reflector_config="C", rotor_config=("1", "2", "4"))
-    a.encrypt()
+    a = Enigma("A", plugboard={"A":"B", "W":"C"})
+    print(a.encrypt())
+
 
     # while True:
     #     try:
