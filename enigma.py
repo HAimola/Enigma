@@ -2,6 +2,40 @@ from hardware_tables import ROTOR_1, ROTOR_2, ROTOR_3, ROTOR_4, ROTOR_5, REFLECT
 from hardware_tables import _ROT_INTER_IN1, _ROT_INTER_12, _ROT_INTER_23, _ROT_INTER_3R
 
 import re
+import logging
+import colorama
+
+
+logging.root.setLevel(level=logging.INFO)
+SPECIAL_CHAR_RE = re.compile("[+_`!@#$%^&*=().,';~/\d-]")
+colorama.init()
+
+
+class LogFormatter(logging.Formatter):
+    fmt = "[%(levelname)s] %(asctime)s - %(message)s"
+
+    level_color = {
+        logging.DEBUG: colorama.Fore.GREEN + fmt + colorama.Fore.RESET,
+        logging.INFO: colorama.Fore.WHITE + fmt + colorama.Fore.RESET,
+        logging.WARNING: colorama.Fore.YELLOW + fmt + colorama.Fore.RESET,
+        logging.ERROR: colorama.Fore.LIGHTRED_EX + fmt + colorama.Fore.RESET,
+        logging.CRITICAL: colorama.Fore.RED + fmt + colorama.Fore.RESET
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def format(self, record):
+        log_fmt = self.level_color[record.levelno]
+        formatter = logging.Formatter(log_fmt, datefmt="%H:%M:%S")
+        return formatter.format(record)
+
+
+def set_debug():
+    if logging.root.level == logging.DEBUG:
+        logging.root.setLevel(logging.INFO)
+    else:
+        logging.root.setLevel(logging.DEBUG)
 
 
 def default_rotors_and_interfaces():
@@ -66,35 +100,62 @@ def read_key(d: dict, val, key=True):
     return None
 
 
-def check_dict_repeating_values(d: dict, except_msg):
-    for key in d:
-        if key in d.values():
-            raise ValueError(except_msg)
-
-
 # Classe que codifica e aceita as configurações do usuário
 class Enigma:
 
     def __init__(self, input_text: str = "", rotor_pos: str = "00:00:00", rotor_config: tuple[str, str, str] = None,
-                 plugboard: tuple or dict = (), reflector_config: str = "B"):
+                 plugboard: dict = None, reflector_config: str = "B", logger=logging.getLogger("enigma.logger")):
 
-        self.txt = input_text.upper()
-        self._rotor_pos = rotor_pos
-        self.rotor_config = rotor_config
-        self._plugboard = plugboard
-        self.reflector_option = reflector_config
-        self.sanitize_flag = True
+        self.logger: logging.Logger = logger
 
-        self.sanitize_flag = None
+        self.logger.setLevel(logging.root.level)
+        handler = logging.StreamHandler()
+        handler.setFormatter(LogFormatter())
+        self.logger.addHandler(handler)
+
+        self.logger.debug(f"[CALL] Objeto Enigma Criado: {self}")
+
+        self._txt: str = ""
+        self._rotor_pos: str = ""
+        self._plugboard: dict = {}
+        self._rotor_pos: str = ""
+        self._rotor_config: tuple = ()
+        self._reflector_option: str = ""
+
+        self.txt = input_text
+        self.rotor_pos = rotor_pos
+        self.plugboard = plugboard if plugboard is not None else {}
+        self.rotor_config: tuple = rotor_config
+        self.reflector_option: str = reflector_config
+
         self.ring1: int = 0
         self.ring2: int = 0
         self.ring3: int = 0
-
         self.rotor1 = None
         self.rotor2 = None
         self.rotor3 = None
         self.reflector = None
-        self.sanitize_flag = True
+
+    @property
+    def txt(self):
+        return self._txt
+
+    @txt.setter
+    def txt(self, value):
+        search = re.findall(SPECIAL_CHAR_RE, value)
+        self.logger.debug(f"[CALL] txt setter: args={value}, {type(value)}")
+        self.logger.debug(f"txt regex: {search=}, {len(search)=}")
+
+        # A máquina Enigma original só encriptava letras
+        # Termina o programa caso não seja string e se tem algum caractér especial ou número.
+        if not isinstance(value, str):
+            self.logger.debug("txt input inválido")
+            self.logger.error(f"Dados passados - {value} - não são em forma de texto! ")
+        elif search:
+            self.logger.debug("Regex search encontrou caractéres especiais.")
+            self.logger.error("String com caractéres especiais ou números! Use apenas letras.")
+        else:
+            self._txt = value.upper()
 
     @property
     def rotor_pos(self):
@@ -102,91 +163,119 @@ class Enigma:
 
     @rotor_pos.setter
     def rotor_pos(self, value):
+        # O formato da posição do Rotor é bem específico:
+        # Exitem 3 rotores ativos e eles têm posições de 0 à 25
+        # Caso o usuário queira alterar o valor da posição, ele deve fazer no formato correto (Digito:Digito:Digito).
+        # Termina o programa se não tiverem 3 grupos de digitos ou se eles não forem digitos
+
+        self._rotor_pos = "0:0:0" if not self._rotor_pos else self._rotor_pos
+
+        search = re.findall("\d{1,2}:\d{1,2}:\d{1,2}", self._rotor_pos)
+        if not search:
+            self.logger.error("Posição do Rotor inválida. O padrão desta opção deve ser: Número:Número:Número")
+
         self._rotor_pos = value
         search = re.findall("\d{1,2}", self._rotor_pos)
 
+        self.logger.debug(f"Regex do rotor_pos: {search}")
         self.ring1 = int(search[2])
         self.ring2 = int(search[1])
         self.ring3 = int(search[0])
+        self.logger.debug(f"Anéis dos rotores setados: {self.ring1}:{self.ring2}:{self.ring3}")
 
     @property
     def plugboard(self):
         return self._plugboard
 
     @plugboard.setter
-    def plugboard(self, value):
+    def plugboard(self, d: dict or str):
+        self.logger.debug(f"[CALL] plugboard setter, args={d}, {type(d)}")
+        self.logger.debug(f"Estado anterior do dict plugboard {self._plugboard}")
 
+        if isinstance(d, dict):
+            self.logger.debug(f"Dict de plugboard detectado.")
+            for key, value in d.items():
+                if len(key) > 1 or len(value) > 1:
 
-        comp = re.compile("[+_`!@#$%^&*=().,';~/\d-]")
+                    self.logger.error(f"Os plugs só podem ser conectados em pares um à um.")
+                    break
 
-        if isinstance(value, tuple):
+                if re.findall(SPECIAL_CHAR_RE, key) or re.findall(SPECIAL_CHAR_RE, value):
+                    self.logger.debug(f"Input na plugboard invalido: {key}:{value}, {type(key)}:{type(value)}")
+                    self.logger.error(f"Apenas letras de A a Z podem ser inseridas como plugs no plugboard.")
+                    break
 
-            for plug in value:
-                search = re.findall(comp, plug)
-                if search:
-                    raise ValueError(f"String do plugboard {plug} com caractér especial ou números! Use apenas letras.")
-                if len(plug) != 2:
-                    raise ValueError(f"Configuração de plugboard {plug} não tem duas conexões!")
+                if not key:
+                    self.logger.warning(f"Plug {value} não está sendo conectado à nada. Descartando plug.")
+                    continue
 
-            self._plugboard = {plug[0]: plug[1] for plug in value if plug[0] != plug[1]}
-        elif isinstance(value, dict):
-            self._plugboard = value
+                if not value:
+                    self.logger.warning(f"Plug {key} não está sendo conectado à nada. Descartando plug.")
+                    continue
 
-        check_dict_repeating_values(self.plugboard, except_msg="Existem valores repetidos no plugboard. Uma "
-                                                               "letra pode se conectar à apenas uma outra letra!")
+                self._plugboard[key] = value
+                self.logger.info(f"Par {key}:{value} adicionado ao plugboard!")
 
-    def __setattr__(self, key, value):
-        if key == "txt":
-            value = value.upper()
+            err_keys = []
+            err_comp_dict = d.copy()
 
-        super().__setattr__(key, value)
+            for key in self._plugboard:
+                if key in err_comp_dict.values():
+                    value = self._plugboard[key]
+                    err_keys.append(key)
+                    err_comp_dict.pop(key)
+                    self.logger.error(f"Existem plugs repetidos conectados ao plug board. Descartando plug {key}:{value}")
 
-        if "sanitize_flag" in self.__dict__:
-            if self.sanitize_flag is not None:
-                self.sanitize_inputs()
+            for key in err_keys:
+                self._plugboard.pop(key)
 
-    # Função que sanitiza todos os inputs
-    def sanitize_inputs(self):
+            self.logger.info(f"Configuração atual: {self._plugboard}")
 
-        if not isinstance(self.txt, str):
-            raise ValueError(f"Dados passados - {self.txt} - não são em forma de texto! ")
+    @property
+    def rotor_config(self):
+        return self._rotor_config
 
-        # A máquina Enigma original só encriptava letras
-        # Termina o programa caso tenha algum caractér especial ou número.
-        comp = re.compile("[+_`!@#$%^&*=().,';~/\d-]")
-        search = re.findall(comp, self.txt)
+    @rotor_config.setter
+    def rotor_config(self, value):
+        self.logger.debug(f"[CALL] rotor_config setter: args={value}")
+        tmp_list = []
+        if isinstance(value, tuple) and value:
+            if len(value) < 3:
+                self.logger.debug(f"Poucos inputs. Input do rotor_config={value}")
+                self.logger.error("Configurações de rotor insuficientes. São necessários pelo menos 3 rotores.")
+            else:
+                for inp in value:
+                    try:
+                        val = int(inp)
+                        if val > 5 or val < 1:
+                            self.logger.debug(f"Cast com sucesso, mas input fora do limite. {val=}")
+                            self.logger.error("Número do rotor não existe. Escolha um número de 1 à 5.")
+                        tmp_list.append(val)
 
-        if search:
-            raise ValueError("String com caractéres especiais ou números! Use apenas letras.")
+                    except ValueError:
+                        self.logger.debug(f"Erro no cast para int do input do rotor_config. {inp=}, {type(inp)=}")
+                        self.logger.error("Configuração dos rotores não é um número. Escolha um número de 1 à 5.")
+                self._rotor_config = tuple(tmp_list)
 
-        # O formato da posição do Rotor é bem específico:
-        # Exitem 3 rotores ativos e eles têm posições de 0 à 25
-        # Caso o usuário queira alterar o valor da posição, ele deve fazer no formato correto (Digito:Digito:Digito).
-        # Termina o programa se não tiverem 3 grupos de digitos ou se eles não forem digitos
-        comp = re.compile("\d{1,2}:\d{1,2}:\d{1,2}")
-        search = re.findall(comp, self._rotor_pos)
+        elif self.rotor_config is None or not self.rotor_config:
+            self.logger.debug(f"{self._rotor_config=}. Usando default ('1', '2', '3')")
+            self._rotor_config = ("1", "2", "3")
 
-        if not search:
-            raise ValueError("Posição do Rotor inválida. O padrão desta opção deve ser: Número:Número:Número")
+    @property
+    def reflector_option(self):
+        return self._reflector_option
 
-        if self.rotor_config:
-            if len(self.rotor_config) < 3:
-                raise ValueError("Configurações de rotor insuficientes. São necessários pelo menos 3 rotores.")
-
-            for i in self.rotor_config:
-                try:
-                    val = int(i)
-                except ValueError:
-                    raise ValueError("Configuração dos rotores não é um número. Escolha um número de 1 à 5.")
-
-                if val > 4 or val < 1:
-                    raise ValueError("Número do rotor não existe. Escolha um número de 1 à 5.")
-        else:
-            self.rotor_config = ("1", "2", "3")
+    @reflector_option.setter
+    def reflector_option(self, value):
+        self.logger.debug(f"[CALL] reflector_option setter: args={value}")
 
         # Só existem 2 modelos convencionais de refletor: B e C (existem as variações Dünn, mas eu não implementei)
-        if self.reflector_option not in ("C", "B"):
-            raise ValueError("O modelo de refletor não existe. Escolha o refletor B ou C.")
+        if value not in ("C", "B"):
+            self.logger.debug(f"refector input inválido {value=}")
+            self.logger.error("O modelo de refletor não existe. Escolha o refletor B ou C.")
+            self.reflector_option = "B"
+
+        self._reflector_option = value
 
     # Essa função enforça os limites dos rotores e implementa um função do design chamada de Turnover
     def increment_higher_ring(self):
@@ -203,12 +292,12 @@ class Enigma:
         if self.ring3 >= 26:
             self.ring3 = 0
 
-    def instance_in_plugboard(self, input: str):
-        if input in self._plugboard:
-            return self._plugboard[input]
-        elif input in self._plugboard.values():
-            return read_key(self._plugboard, input)
-        return input
+    def instance_in_plugboard(self, plug: str):
+        if plug in self._plugboard:
+            return self._plugboard[plug]
+        elif plug in self._plugboard.values():
+            return read_key(self._plugboard, plug)
+        return plug
 
     # Função que de fato encripta - e decripta - o texto de input.
     # Por conta da arquitetura do programa, implementar outras variações dos rotores ou dos refletores é
@@ -225,6 +314,8 @@ class Enigma:
         self.rotor1 = rotors_options[int(self.rotor_config[0]) - 1]
         self.rotor2 = rotors_options[int(self.rotor_config[1]) - 1]
         self.rotor3 = rotors_options[int(self.rotor_config[2]) - 1]
+
+        self.logger.debug(f"Rotores selecionados: {self.rotor1['A']=}, {self.rotor2['A']=}, {self.rotor3['A']=}")
 
         if self.reflector_option == "B":
             self.reflector = reflector_options[0]
