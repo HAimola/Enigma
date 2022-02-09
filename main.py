@@ -1,4 +1,3 @@
-# Parte de interface Grafica
 import logging
 
 import enigma
@@ -17,15 +16,18 @@ def print_ui_header():
 
     print("\nFeito pelo grupo 7.\n\n")
 
-    com_str = "COMANDOS: /code {texto}               - Codifica um texto usando as configurações atuais.\n" \
+    com_str = "COMANDOS: /encrypt {texto}            - Codifica um texto usando as configurações atuais.\n" \
               "          /help                       - Exibe esse menu de ajuda\n" \
               "          /exit ou Ctrl+C             - Termina o programa.\n" \
-              "          /rotr {NUM:NUM:NUM}         - Ajusta os rotores para as posições especificadas, os números\n" \
+              "          /setrotor NUM:NUM:NUM       - Ajusta os rotores para as posições especificadas, os números\n" \
               "                                         devem ser menores ou iguais a 26.\n" \
               "          /plug {LETRA:LETRA, ...}    - Conecta duas letras no plug-board. Se alguma das letras\n" \
               "                                         já estiver conectada, a conexão mais nova tem prioridade.\n" \
-              "          /lckr                       - Trava ou destrava o rotor. Isso impede a posição do rotor de\n" \
-              "                                         mudar ENTRE diferentes chamadas pro comando code.\n"
+              "          /rmplug {LETRA:LETRA, ...}  - Desconecta duas letras que já estão no plug-board.\n" \
+              "          /lockrotor                  - Trava ou destrava o rotor. Isso impede a posição do rotor de\n" \
+              "                                         mudar ENTRE diferentes chamadas pro comando code.\n" \
+              "          /reset                      - Reinicia a máquina para todas as condições iniciais\n" \
+
     print(com_str)
 
 
@@ -40,15 +42,16 @@ class UI(threading.Thread):
         self.args = None
         self.enigma = enigma_in if isinstance(enigma_in, enigma.Enigma) else enigma.Enigma()
         self.lock_rotor_flag = False
-        self.allowed_commands = ({"/code": self.code, "/exit": self.exit, "/rotr": self.rotr, "/plug": self.plug,
-                                  "/help": self.help, "/lckr": self.lckr, "/dbug": self.set_debug})
+        self.allowed_commands = ({"/encrypt": self.encrypt, "/exit": self.exit, "/setrotor": self.setrotor,
+                                  "/plug": self.plug, "/rmplug": self.rmplug, "/help": self.help,
+                                  "/lockrotor": self.lockrotor, "/debug": self.set_debug})
         print_ui_header()
 
         super().__init__(name=name)
         self.start()
 
-    def lckr(self):
-        self.logger.debug(f"[UI_CALL] Comando /lckr. Estado anterior: {self.lock_rotor_flag=}")
+    def lockrotor(self):
+        self.logger.debug(f"[UI_CALL] Comando /lockrotor. Estado anterior: {self.lock_rotor_flag=}")
         self.lock_rotor_flag ^= True
         self.logger.info(f"Trava do rotor entre cifras {'ligada' if self.lock_rotor_flag else 'desligada'}")
 
@@ -56,8 +59,8 @@ class UI(threading.Thread):
         self.logger.debug("[UI_CALL] Comando /help")
         print_ui_header()
 
-    def code(self):
-        self.logger.debug(f"[UI_CALL] Comando /code: {self.args=}")
+    def encrypt(self):
+        self.logger.debug(f"[UI_CALL] Comando /encrypt: {self.args=}")
         tmp = None
         if self.lock_rotor_flag:
             tmp = self.enigma.rotor_pos
@@ -80,9 +83,10 @@ class UI(threading.Thread):
         self.logger.debug("[UI_CALL] Comando /exit")
         exit()
 
-    def rotr(self):
+    def setrotor(self):
         if self.args:
             form = "".join(self.args)
+            self.logger.debug(f"[UI_CALL] Comando /setrotor: {self.args}")
             self.enigma.rotor_pos = form
 
     def plug(self):
@@ -98,8 +102,11 @@ class UI(threading.Thread):
             self.enigma.plugboard = d
             self.logger.debug(f"Dicionario de input adicionado")
 
+    def rmplug(self):
+        pass
+
     def set_debug(self):
-        self.logger.debug("[UI_CALL] Comando /dbug")
+        self.logger.debug("[UI_CALL] Comando /debug")
         if self.logger.level == logging.DEBUG:
             self.logger.info("Desativando debugger")
             self.logger.setLevel(logging.INFO)
@@ -114,7 +121,7 @@ class UI(threading.Thread):
             self.logger.debug("[UI_CALL] Input")
             self.args = input(f"{self.enigma.rotor_pos} -> ")
 
-            self.cmd = re.search("^/[a-z]{4}", self.args)
+            self.cmd = re.search("^/[a-z]*", self.args)
 
             if self.cmd:
                 self.cmd = self.args[self.cmd.start():self.cmd.end()]
@@ -130,4 +137,3 @@ class UI(threading.Thread):
 
 if __name__ == "__main__":
     EnigmaUI = UI()
-
