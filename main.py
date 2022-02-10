@@ -19,6 +19,8 @@ def print_ui_header():
     com_str = "COMANDOS: /encrypt {texto}            - Codifica um texto usando as configurações atuais.\n" \
               "          /help                       - Exibe esse menu de ajuda\n" \
               "          /exit ou Ctrl+C             - Termina o programa.\n" \
+              "          /selrotor (NUM, NUM, NUM)   - Seleciona o tipo de rotor \n" \
+              "          /selreflector 'B' ou 'C'    - Seleciona o tipo de refletor usado\n" \
               "          /setrotor NUM:NUM:NUM       - Ajusta os rotores para as posições especificadas, os números\n" \
               "                                         devem ser menores ou iguais a 26.\n" \
               "          /plug {LETRA:LETRA, ...}    - Conecta duas letras no plug-board. Se alguma das letras\n" \
@@ -44,7 +46,8 @@ class UI(threading.Thread):
         self.lock_rotor_flag = False
         self.allowed_commands = ({"/encrypt": self.encrypt, "/exit": self.exit, "/setrotor": self.setrotor,
                                   "/plug": self.plug, "/rmplug": self.rmplug, "/help": self.help,
-                                  "/lockrotor": self.lockrotor, "/debug": self.set_debug})
+                                  "/selrotor": self.selrotor, "/selreflector":self.selreflector,
+                                  "/lockrotor": self.lockrotor, "/reset": self.reset, "/debug": self.set_debug})
         print_ui_header()
 
         super().__init__(name=name)
@@ -93,6 +96,11 @@ class UI(threading.Thread):
         self.logger.debug("[UI_CALL] Comando /plug")
         plugs = "".join(self.args).strip("{}").strip()
 
+        if not self.args:
+            self.logger.debug(f"Args de plug vazio. {self.args=}")
+            self.logger.warning("Nenhum plug foi adicionado. Use o formato {LETRA:LETRA}")
+            return
+
         if not plugs:
             self.logger.warning("Não foi possível detectar plugs válidos no input. Use o formato {LETRA:LETRA}")
         else:
@@ -102,8 +110,54 @@ class UI(threading.Thread):
             self.enigma.plugboard = d
             self.logger.debug(f"Dicionario de input adicionado")
 
+    def selrotor(self):
+        self.logger.debug("[UI_CALL] Comando /selrotor")
+
+        if self.args:
+            tup = "".join(self.args).strip("()").split(",")
+            try:
+                tup = tuple((int(rotor) for rotor in tup))
+                self.logger.debug(f"Tupla detectada, formato aceito: {tup=}, {isinstance(all(tup), int)=}")
+            except ValueError:
+                self.logger.debug(f"Erro no cast para int do input do rotor_config. {tup=}")
+                self.logger.error("Tipo de rotor inválido. Selecione um rotor com números de 1 à 5.")
+                tup = ()
+            self.enigma.rotor_config = tup
+        else:
+            self.logger.debug(f"Args de rotor vazio. {self.args=}")
+            self.logger.warning("Nenhum rotor foi escolhido. Use o formato (NÚMERO, NÚMERO, NÚMERO)")
+
+    def selreflector(self):
+        self.logger.debug("[UI_CALL] Comando /selreflector")
+        refl = self.args[0]
+
+        if self.args:
+            if len(refl) > 1:
+                self.logger.debug(f"Letra de refletor >1: {refl=}, {len(refl)}")
+                self.logger.error("Tipo de refletor inválido. Selecione B ou C.")
+            elif refl not in ("B", "C"):
+                self.logger.debug(f"Letra inválida: {refl=}, {refl in ('B', 'C')=}")
+                self.logger.error("Tipo de refletor inválido. Selecione B ou C.")
+            else:
+                self.enigma.reflector_option = refl
+        else:
+            self.logger.debug(f"Args de refletor vazio. {self.args=}")
+            self.logger.warning("Nenhum refletor foi escolhido. Digite B ou C")
+
     def rmplug(self):
-        pass
+        self.logger.debug("[UI_CALL] Comando /rmplug (WIP)")
+
+    def reset(self):
+        self.logger.debug("[UI_CALL] Comando /reset")
+        self.logger.info("Resetando configurações da máquina.")
+
+        self.enigma._plugboard = {}
+        self.enigma.rotor_pos = "0:0:0"
+        self.enigma.rotor_config = ()
+        self.enigma.reflector_option = "B"
+
+        self.logger.debug(f"Reset da instancia: {self.enigma.plugboard}, {self.enigma.rotor_pos}, "
+                          f"{self.enigma.rotor_config}, {self.enigma.reflector_option}")
 
     def set_debug(self):
         self.logger.debug("[UI_CALL] Comando /debug")

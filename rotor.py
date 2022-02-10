@@ -12,7 +12,7 @@ class Rotor(dict):
     @shift.setter
     def shift(self, value):
         self._shift = value
-        if self._shift > 26:
+        if self._shift >= 26:
             self._shift = 0
 
     def __setitem__(self, key, value):

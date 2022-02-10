@@ -74,7 +74,7 @@ class Interface(dict):
     # Gira o rotor fazendo o shift das duas interfaces
     # que representam um rotor
     def shift_rotor(self):
-        if not isinstance(self.r1, Reflector):
+        if not isinstance(self.r2, Reflector):
             self.r2.shift += 1
             self.next_inter.relative_shift(-1, key=True)
             self.relative_shift(-1)

@@ -113,9 +113,10 @@ class Enigma:
 
         self._rotor_pos = "0:0:0" if not self._rotor_pos else self._rotor_pos
 
-        search = re.findall("\d{1,2}:\d{1,2}:\d{1,2}", self._rotor_pos)
+        search = re.findall("\d{1,2}:\d{1,2}:\d{1,2}", value)
         if not search:
             self.logger.error("Posição do Rotor inválida. O padrão desta opção deve ser: Número:Número:Número")
+            return
 
         self._rotor_pos = value
         search = re.findall("\d{1,2}", self._rotor_pos)
@@ -181,44 +182,30 @@ class Enigma:
 
     @rotor_config.setter
     def rotor_config(self, value):
-        self.logger.debug(f"[CALL] rotor_config setter: args={value}")
-        tmp_list = []
+        self.logger.debug(f"[CALL] rotor_config setter: args={value}, type(args)={type(value)}")
 
-        if isinstance(value, tuple) and value:
+        if isinstance(value, tuple):
             if len(value) < 3:
                 self.logger.debug(f"Poucos inputs. Input do rotor_config={value}")
                 self.logger.error("Configurações de rotor insuficientes. São necessários pelo menos 3 rotores.")
-            else:
-                for inp in value:
-                    try:
-                        val = int(inp)
-                        if val > 5 or val < 1:
-                            self.logger.debug(f"Cast com sucesso, mas input fora do limite. {val=}")
-                            self.logger.error("Número do rotor não existe. Escolha um número de 1 à 5.")
-                        tmp_list.append(val)
+                return
+            for i in value:
+                if i > 5 or i < 1:
+                    self.logger.debug(f"Cast com sucesso, mas input fora do limite. {value=}")
+                    self.logger.error("Número do rotor não existe. Escolha um número de 1 à 5.")
+                    return
 
-                    except ValueError:
-                        self.logger.debug(f"Erro no cast para int do input do rotor_config. {inp=}, {type(inp)=}")
-                        self.logger.error("Configuração dos rotores não é um número. Escolha um número de 1 à 5.")
-                self._rotor_config = tuple(tmp_list)
+            self._rotor_config = value
 
         elif self.rotor_config is None or not self.rotor_config:
-            self.logger.debug(f"{self._rotor_config=}. Usando default ('1', '2', '3')")
-            self._rotor_config = ("1", "2", "3")
+            self.logger.debug(f"{self._rotor_config=}. Usando default (1, 2, 3)")
+            self._rotor_config = (1, 2, 3)
 
         rotors_options = (ROTOR_1, ROTOR_2, ROTOR_3, ROTOR_4, ROTOR_5)
-        reflector_options = (REFLECTOR_B, REFLECTOR_C)
 
-        if self.reflector_option == "B":
-            self.reflector = reflector_options[0]
-        else:
-            self.reflector = reflector_options[1]
-
-        self.logger.debug(f"Refletor selecionado: {self.reflector_option}")
-
-        self.rotor1 = rotors_options[int(self._rotor_config[0]) - 1]
-        self.rotor2 = rotors_options[int(self._rotor_config[1]) - 1]
-        self.rotor3 = rotors_options[int(self._rotor_config[2]) - 1]
+        self.rotor1 = rotors_options[self._rotor_config[0]-1]
+        self.rotor2 = rotors_options[self._rotor_config[1]-1]
+        self.rotor3 = rotors_options[self._rotor_config[2]-1]
 
         self.logger.debug(f"Rotores selecionados: {self.rotor1.number}, {self.rotor2.number}, {self.rotor3.number}")
 
@@ -245,6 +232,14 @@ class Enigma:
             self.reflector_option = "B"
 
         self._reflector_option = value
+        reflector_options = (REFLECTOR_B, REFLECTOR_C)
+
+        if value == "B":
+            self.reflector = reflector_options[0]
+        else:
+            self.reflector = reflector_options[1]
+
+        self.logger.debug(f"Refletor selecionado: {self.reflector_option}")
 
     def instance_in_plugboard(self, plug: str):
         """
@@ -289,7 +284,7 @@ class Enigma:
             # Uma explicação breve da arquitetura e da máquina:
             # - Existem 2 tipos de dicionários no programa, ambos no script hardware_tables.py, os dicionários
             #   de cifragem  (que têm os nomes de ROTOR_1 à ROTOR_5) e os dicionários de interface
-            #  (ROTOR_INTER_IN1, ROTOR_INTER_12, ...)
+            #  (INTER_IN1, INTER_12, ...)
             #
             # - Os dicionários de cifragem são as tabelas que de fato fazem a encriptagem.  No programa, eles mostram
             #  a equivalência entre uma e letra e sua versão cifrada. Por exemplo, se o usuário apertar a letra A no
@@ -315,7 +310,7 @@ class Enigma:
             #  Para adicionar complexidade e robustês à cifra, os rotores giram entre si. Isso muda a interface entre
             # os rotores. O dicionário apenas mantém um registro da interface atual entre eles:
             #
-            # ROTOR 1 GIROU   B C D E F G H I J K ... Z A  } Interface entre 1 e 2 -> ROT_INTER_12
+            # ROTOR 1 GIROU   B C D E F G H I J K ... Z A  } Interface entre 1 e 2 -> INTER_12
             # ROTOR 2 NORMAL  A B C D E F G H I J ... Y Z  }
 
             tmp = self.INTER_IN1[letter]
